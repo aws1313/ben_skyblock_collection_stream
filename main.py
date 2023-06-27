@@ -4,7 +4,9 @@ import platformdirs
 import os
 import datetime
 import operator
-
+from flask import Flask
+from flask import jsonify
+app = Flask(__name__)
 APPNAME = "ben_skyblock_collection_stream"
 AUTHOR = "io.github.aws1313"
 CACHE_DIR = platformdirs.user_cache_dir(APPNAME, AUTHOR)
@@ -63,13 +65,28 @@ def prepare_collection_infos():
 
 
 def evaluate_changes(old: dict, new: dict, old_collections):
-    collected = new["profile"]["members"][uuid]["collection"]
-    collected_old = old["profile"]["members"][uuid]["collection"]
+    collected = {}
+    for u in new["profile"]["members"]:
+        if "collection" in new["profile"]["members"][u].keys():
+            for i in new["profile"]["members"][u]["collection"].keys():
+                if i in collected.keys():
+                    collected[i] += new["profile"]["members"][u]["collection"][i]
+                else:
+                    collected[i] = new["profile"]["members"][u]["collection"][i]
+    print(collected)
+    collected_old = {}
+    for u in old["profile"]["members"]:
+        if "collection" in old["profile"]["members"][u].keys():
+            for i in old["profile"]["members"][u]["collection"].keys():
+                if i in collected_old.keys():
+                    collected_old[i] += old["profile"]["members"][u]["collection"][i]
+                else:
+                    collected_old[i] = old["profile"]["members"][u]["collection"][i]
     collections = old_collections
     for k in collected.keys():
         collections[k] = {"collected": collected[k]}
         if k in collected_old.keys() and (collected[k] != collected_old[k]):
-            collections[k]["last_changed"] = datetime.datetime.now()
+            collections[k]["last_changed"] = int(datetime.datetime.now().timestamp())
             collections[k]["changed"] = True
             collections[k]["amount_changed"] = collected[k] - collected_old[k]
         else:
@@ -93,65 +110,83 @@ def get_collections(old: dict, new: dict, collection_infos, old_collections):
 
     print(items)
     for c in coll.keys():
-        coll[c]["display_name"] = items[c]["name"]
-        coll[c]["id"] = c
-        tier = 0
-        # get tier now
-        for tt in range(len(items[c]["tiers"])):
-            t = items[c]["tiers"][tt]
-            if coll[c]["collected"] > t["amountRequired"]:
-                tier = t["tier"]
-                if tier == items[c]["maxTiers"]:
-                    coll[c]["maxed_out"] = True
-                    coll[c]["missing_to_next_tier"] = 0
-                    coll[c]["percentage_to_next_tier"] = 1
-                else:
-                    coll[c]["maxed_out"] = False
-                    next_needed = items[c]["tiers"][tt + 1]["amountRequired"]
-                    coll[c]["missing_to_next_tier"] = next_needed - coll[c]["collected"]
-                    coll[c]["percentage_to_next_tier"] = coll[c]["missing_to_next_tier"] / (
-                            next_needed - t["amountRequired"])
+        if c in items.keys():
+            coll[c]["display_name"] = items[c]["name"]
+            coll[c]["id"] = c
+            tier = 0
+            # get tier now
+            for tt in range(len(items[c]["tiers"])):
+                t = items[c]["tiers"][tt]
+                if coll[c]["collected"] > t["amountRequired"]:
+                    tier = t["tier"]
+                    if tier == items[c]["maxTiers"]:
+                        coll[c]["maxed_out"] = True
+                        coll[c]["missing_to_next_tier"] = 0
+                        coll[c]["percentage_to_next_tier"] = 1
+                    else:
+                        coll[c]["maxed_out"] = False
+                        next_needed = items[c]["tiers"][tt + 1]["amountRequired"]
+                        coll[c]["missing_to_next_tier"] = next_needed - coll[c]["collected"]
+                        coll[c]["percentage_to_next_tier"] = coll[c]["missing_to_next_tier"] / (
+                                next_needed - t["amountRequired"])
 
-            else:
-                break
-        coll[c]["tier_now"] = tier
+                else:
+                    break
+            coll[c]["tier_now"] = tier
 
     return coll
 
+# main
+prepare_dirs()
+
+# CONFIG
+conf = load_conf()
+api_key = conf["api-key"]
+uuid = conf["uuid"]
+profile_id = conf["profile-id"]
+
+collection_infos = prepare_collection_infos()
+
+# repeat
+profile_collections_old = get_profile_collection(api_key, profile_id, uuid)
+
+old_collection = {}
+
+@app.route("/")
+def renew_coll():
+    global profile_collections_old
+    global old_collection
+    profile_collections_new = get_profile_collection(api_key, profile_id, uuid)
+    save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
+                 profile_collections_new)
+    c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
+    print(c)
+    sort = list(c.values())
+    sort.sort(key=operator.itemgetter('last_changed'), reverse=True)
+
+    print(sort)
+
+    # save_to_json(os.path.join(CACHE_DIR, "exp.json"),sort)
+
+    changed = []
+    for s in sort:
+        if s["changed"]:
+            changed.append(s)
+
+    print(changed)
+
+    profile_collections_old = profile_collections_new
+    old_collection = c
+
+    return jsonify({"sorted": sort, "changed": changed})
+
 
 if __name__ == '__main__':
-    prepare_dirs()
-
-    # CONFIG
-    conf = load_conf()
-    api_key = conf["api-key"]
-    uuid = conf["uuid"]
-    profile_id = conf["profile-id"]
-
-    collection_infos = prepare_collection_infos()
-
-    # repeat
-    profile_collections_old = get_profile_collection(api_key, profile_id, uuid)
-    old_collection = {}
+    app.run(host="127.0.0.1", port=8080, debug=True)
     while True:
         inp = input("Press enter to continue")
         if inp == "e":
             exit()
+        renew_coll()
 
-        profile_collections_new = get_profile_collection(api_key, profile_id, uuid)
-        c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
-        print(c)
-        sort = list(c.values())
-        sort.sort(key=operator.itemgetter('last_changed'))
 
-        print(sort)
-
-        changed = []
-        for s in sort:
-            if s["changed"]:
-                changed.append(s)
-
-        print(changed)
-
-        profile_collections_old = profile_collections_new
-        old_collection = c
