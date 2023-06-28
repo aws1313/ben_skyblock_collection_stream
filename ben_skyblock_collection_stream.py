@@ -6,15 +6,30 @@ import datetime
 import operator
 from flask import Flask
 from flask import jsonify
-app = Flask(__name__)
+from waitress import serve
+import atexit
+
 APPNAME = "ben_skyblock_collection_stream"
 AUTHOR = "io.github.aws1313"
 CACHE_DIR = platformdirs.user_cache_dir(APPNAME, AUTHOR)
 DATA_DIR = platformdirs.user_data_dir(APPNAME, AUTHOR)
 
+app = Flask(APPNAME)
 
-def get_profile_collection(api_key, profile_id, uuid):
-    url = f"https://api.hypixel.net/skyblock/profile?key={api_key}&profile={profile_id}&uuid={uuid}"
+# GLOBALS
+collection_infos = {}
+profile_collections_old = {}
+old_collection = {}
+
+
+def exit_handler():
+    print("Shutting down + saving collections")
+    save_to_json(os.path.join(DATA_DIR, "old_collection.json"), old_collection)
+    save_to_json(os.path.join(DATA_DIR, "profile_collections_old.json"), profile_collections_old)
+
+
+def get_profile_collection(api_key_, uuid_, profile_id_):
+    url = f"https://api.hypixel.net/skyblock/profile?key={api_key_}&profile={profile_id_}&uuid={uuid_}"
     response = requests.get(url)
     return response.json()
 
@@ -64,24 +79,22 @@ def prepare_collection_infos():
         return response.json()
 
 
+def add_up_members(to_add_up: dict):
+    added_up = {}
+    for u in to_add_up["profile"]["members"]:
+        if "collection" in to_add_up["profile"]["members"][u].keys():
+            for i in to_add_up["profile"]["members"][u]["collection"].keys():
+                if i in added_up.keys():
+                    added_up[i] += to_add_up["profile"]["members"][u]["collection"][i]
+                else:
+                    added_up[i] = to_add_up["profile"]["members"][u]["collection"][i]
+    return added_up
+
+
 def evaluate_changes(old: dict, new: dict, old_collections):
-    collected = {}
-    for u in new["profile"]["members"]:
-        if "collection" in new["profile"]["members"][u].keys():
-            for i in new["profile"]["members"][u]["collection"].keys():
-                if i in collected.keys():
-                    collected[i] += new["profile"]["members"][u]["collection"][i]
-                else:
-                    collected[i] = new["profile"]["members"][u]["collection"][i]
+    collected = add_up_members(new)
     print(collected)
-    collected_old = {}
-    for u in old["profile"]["members"]:
-        if "collection" in old["profile"]["members"][u].keys():
-            for i in old["profile"]["members"][u]["collection"].keys():
-                if i in collected_old.keys():
-                    collected_old[i] += old["profile"]["members"][u]["collection"][i]
-                else:
-                    collected_old[i] = old["profile"]["members"][u]["collection"][i]
+    collected_old = add_up_members(old)
     collections = old_collections
     for k in collected.keys():
         collections[k] = {"collected": collected[k]}
@@ -99,7 +112,8 @@ def evaluate_changes(old: dict, new: dict, old_collections):
 
 
 def get_collections(old: dict, new: dict, collection_infos, old_collections):
-    # Target [{"id":"COLLECTION", "display_name":"DISPLAY_NAME", "collected":1000, "tier_now":0,"missing_to_next_tier":500, "percentage_to_next_tier":0.75, "last_changed":0}]
+    # Target [{"id":"COLLECTION", "display_name":"DISPLAY_NAME", "collected":1000, "tier_now":0,
+    # "missing_to_next_tier":500, "percentage_to_next_tier":0.75, "last_changed":0}]
     coll = evaluate_changes(old, new, old_collections)
     print(coll)
 
@@ -136,27 +150,40 @@ def get_collections(old: dict, new: dict, collection_infos, old_collections):
 
     return coll
 
-# main
-prepare_dirs()
 
-# CONFIG
-conf = load_conf()
-api_key = conf["api-key"]
-uuid = conf["uuid"]
-profile_id = conf["profile-id"]
+def start_up():
+    global collection_infos
+    global profile_collections_old
+    global old_collection
 
-collection_infos = prepare_collection_infos()
+    prepare_dirs()
 
-# repeat
-profile_collections_old = get_profile_collection(api_key, profile_id, uuid)
+    # CONFIG
+    conf = load_conf()
+    api_key_ = conf["api-key"]
+    uuid_ = conf["uuid"]
+    profile_id_ = conf["profile-id"]
 
-old_collection = {}
+    collection_infos = prepare_collection_infos()
+
+    if os.path.exists(os.path.join(DATA_DIR, "profile_collections_old.json")):
+        profile_collections_old = read_from_json(os.path.join(DATA_DIR, "profile_collections_old.json"))
+    else:
+        profile_collections_old = get_profile_collection(api_key_, uuid_, profile_id_)
+
+    if os.path.exists(os.path.join(DATA_DIR, "old_collection.json")):
+        old_collection = read_from_json(os.path.join(DATA_DIR, "old_collection.json"))
+    else:
+        old_collection = {}
+
+    return api_key_, uuid_, profile_id_
+
 
 @app.route("/")
 def renew_coll():
     global profile_collections_old
     global old_collection
-    profile_collections_new = get_profile_collection(api_key, profile_id, uuid)
+    profile_collections_new = get_profile_collection(api_key, uuid, profile_id)
     save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
                  profile_collections_new)
     c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
@@ -182,11 +209,6 @@ def renew_coll():
 
 
 if __name__ == '__main__':
-    app.run(host="127.0.0.1", port=8080, debug=True)
-    while True:
-        inp = input("Press enter to continue")
-        if inp == "e":
-            exit()
-        renew_coll()
-
-
+    atexit.register(exit_handler)
+    api_key, uuid, profile_id = start_up()
+    serve(app, host="127.0.0.1", port=8080)
