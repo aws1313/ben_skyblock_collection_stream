@@ -8,6 +8,7 @@ from flask import Flask
 from flask import jsonify
 from waitress import serve
 import atexit
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 APPNAME = "ben_skyblock_collection_stream"
 AUTHOR = "io.github.aws1313"
@@ -15,6 +16,10 @@ CACHE_DIR = platformdirs.user_cache_dir(APPNAME, AUTHOR)
 DATA_DIR = platformdirs.user_data_dir(APPNAME, AUTHOR)
 
 app = Flask(APPNAME)
+
+app.wsgi_app = ProxyFix(
+    app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
+)
 
 # GLOBALS
 collection_infos = {}
