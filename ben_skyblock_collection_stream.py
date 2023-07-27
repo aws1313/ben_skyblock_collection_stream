@@ -1,6 +1,4 @@
 import requests
-import json
-import platformdirs
 import os
 import datetime
 import operator
@@ -9,11 +7,7 @@ from flask import jsonify
 from waitress import serve
 import atexit
 from werkzeug.middleware.proxy_fix import ProxyFix
-
-APPNAME = "ben_skyblock_collection_stream"
-AUTHOR = "io.github.aws1313"
-CACHE_DIR = platformdirs.user_cache_dir(APPNAME, AUTHOR)
-DATA_DIR = platformdirs.user_data_dir(APPNAME, AUTHOR)
+from constants import *
 
 app = Flask(APPNAME)
 
@@ -49,16 +43,6 @@ def get_collected_items():
     url = f"https://api.hypixel.net/resources/skyblock/collections"
     response = requests.get(url)
     return response.json()
-
-
-def save_to_json(filename, data):
-    with open(filename, 'w') as file:
-        json.dump(data, file, indent=4)
-
-
-def read_from_json(filename):
-    with open(filename) as f:
-        return json.loads(f.read())
 
 
 def load_conf():
