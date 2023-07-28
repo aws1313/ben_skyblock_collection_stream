@@ -11,8 +11,6 @@ mc_font_file = "assets/MinecraftRegular-Bmg3.ttf"
 
 def gen_card(data):
     ic_size = 100
-
-    print(data)
     with Image.open("assets/background.png") as img_bg:
         img_bg.load()
     bg_width, bg_height = img_bg.size

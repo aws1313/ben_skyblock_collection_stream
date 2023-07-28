@@ -95,11 +95,11 @@ def add_up_members(to_add_up: dict):
 
 def evaluate_changes(old: dict, new: dict, old_collections):
     collected = add_up_members(new)
-    print(collected)
     collected_old = add_up_members(old)
     collections = old_collections
+    print(old_collections)
     for k in collected.keys():
-        collections[k] = {"collected": collected[k]}
+        collections[k]["collected"] = collected[k]
         if k in collected_old.keys() and (collected[k] != collected_old[k]):
             collections[k]["last_changed"] = int(datetime.datetime.now().timestamp())
             collections[k]["changed"] = True
@@ -107,24 +107,22 @@ def evaluate_changes(old: dict, new: dict, old_collections):
         else:
             collections[k]["changed"] = False
             collections[k]["amount_changed"] = 0
-        if "last_changed" not in collections[k]:
+        if "last_changed" not in collections[k].keys():
             collections[k]["last_changed"] = 0
-
+    print(collections)
     return collections
 
 
-def get_collections(old: dict, new: dict, collection_infos, old_collections):
+def get_collections(old: dict, new: dict, old_collections):
     # Target [{"id":"COLLECTION", "display_name":"DISPLAY_NAME", "collected":1000, "tier_now":0,
     # "missing_to_next_tier":500, "percentage_to_next_tier":0.75, "last_changed":0}]
     coll = evaluate_changes(old, new, old_collections)
-    print(coll)
 
     items = {}
     for i in collection_infos["collections"].keys():
         for h in collection_infos["collections"][i]["items"].keys():
             items[h] = collection_infos["collections"][i]["items"][h]
 
-    print(items)
     for c in coll.keys():
         if c in items.keys():
             coll[c]["display_name"] = items[c]["name"]
@@ -229,8 +227,7 @@ def renew_coll(api_key, uuid, profile_id):
     profile_collections_new = get_profile_collection(api_key, uuid, profile_id)
     save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
                  profile_collections_new)
-    c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
-    print(c)
+    c = get_collections(profile_collections_old, profile_collections_new, old_collection)
     sort = list(c.values())
     sort.sort(key=operator.itemgetter('last_changed'), reverse=True)
 
