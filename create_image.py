@@ -1,11 +1,13 @@
 import os
 import roman
-from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
 from PIL import ImageColor
+
 from constants import *
+
 mc_font_file = "assets/MinecraftRegular-Bmg3.ttf"
+
 
 def gen_card(data):
     ic_size = 100
@@ -31,7 +33,7 @@ def gen_card(data):
 
     # bar
     if "percentage_to_next_tier" not in data:
-        data["percentage_to_next_tier"]=0
+        data["percentage_to_next_tier"] = 0
     img_bar_full = img_bar_full.crop(
         (0, 0, int(img_bar_full.size[0] * data["percentage_to_next_tier"]), img_bar_full.size[1]))
 
@@ -41,14 +43,14 @@ def gen_card(data):
     font_size = 20
     if data["maxed_out"]:
         missing = "DONE"
-        missing_color=ImageColor.getrgb("#55FF55")
+        missing_color = ImageColor.getrgb("#55FF55")
     else:
-        missing_color=ImageColor.getrgb("#FF5555")
+        missing_color = ImageColor.getrgb("#FF5555")
         missing = "-" + str(data["missing_to_next_tier"])
     bb_length = img_bar.size[0]
     mc_font = ImageFont.truetype(mc_font_file, font_size)
     if data["tier_now"] == 0:
-        lvl="0"
+        lvl = "0"
     else:
         lvl = roman.toRoman(data["tier_now"])
     s = data["display_name"] + " " + lvl
@@ -72,14 +74,28 @@ def gen_card(data):
         img_bg.alpha_composite(img_font, (main_y_dis, y_distance - 5 + ((75 - y_plus) // 2)))
     except:
         print(data["display_name"])
-        print(img_bg,img_ic)
+        print(img_bg, img_ic)
         img_bg.show()
         img_ic.show()
     return img_bg
 
 
+def join_cards(cards: list[Image]) -> Image:
+    width, height = cards[0].size
+    joined = Image.new("RGBA", (width, height * len(cards)))
+    for c in range(len(cards)):
+        joined.alpha_composite(cards[c], (0, height * c))
+    return joined
+
+
+def gen_list(data: list, count: int):
+    cards = []
+    for i in range(count):
+        cards.append(gen_card(data[i]))
+    return join_cards(cards)
+
+
 if __name__ == '__main__':
     for d in read_from_json("/home/aws1313/Downloads/localhost.json")["sorted"]:
         if "display_name" in d.keys():
-            gen_card(d).save("temp/"+d["display_name"]+".png")
-
+            gen_card(d).save("temp/" + d["display_name"] + ".png")

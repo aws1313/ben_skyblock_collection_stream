@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ben Sykblock - Autorenew</title>
+</head>
+<body>
+    <img src="img.png" id="myImage"  alt="List of cards"/>
+    <script>
+        setInterval(function() {
+    var myImageElement = document.getElementById('myImage');
+    myImageElement.src = 'img.png?rand=' + Math.random();
+}, 2000);
+    </script>
+</body>
+</html>

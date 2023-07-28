@@ -4,12 +4,15 @@ import datetime
 import operator
 from flask import Flask
 from flask import jsonify
+from flask import send_file
+from flask import current_app
 from waitress import serve
 import atexit
 from werkzeug.middleware.proxy_fix import ProxyFix
 from constants import *
 import threading
-from time import sleep
+import create_image
+from io import BytesIO
 
 app = Flask(APPNAME)
 
@@ -22,13 +25,16 @@ collection_infos = {}
 profile_collections_old = {}
 old_collection = {}
 json_cache = {"sorted": [], "changed": []}
+image_cache = default_img
 last_req = datetime.datetime.now()
-running = True
+exit_event = threading.Event()
+
 
 def exit_handler():
-    global running
-    running = False
-    background_thread.join()
+    print("wants exit")
+
+    global exit_event
+    exit_event.set()
     print("Shutting down + saving collections")
     save_to_json(os.path.join(DATA_DIR, "old_collection.json"), old_collection)
     save_to_json(os.path.join(DATA_DIR, "profile_collections_old.json"), profile_collections_old)
@@ -143,7 +149,7 @@ def get_collections(old: dict, new: dict, collection_infos, old_collections):
                         next_needed = items[c]["tiers"][tt + 1]["amountRequired"]
                         coll[c]["missing_to_next_tier"] = next_needed - coll[c]["collected"]
                         coll[c]["percentage_to_next_tier"] = (coll[c]["collected"] - last_needed) / (
-                                    next_needed - last_needed)
+                                next_needed - last_needed)
 
 
                 else:
@@ -160,6 +166,13 @@ def get_collections(old: dict, new: dict, collection_infos, old_collections):
             coll[c]["tier_now"] = tier
 
     return coll
+
+
+def send_pil_img(img):
+    img_io = BytesIO()
+    img.save(img_io, "PNG", quality=100)
+    img_io.seek(0)
+    return send_file(img_io, mimetype="image/png")
 
 
 def start_up():
@@ -190,45 +203,51 @@ def start_up():
     return api_key_, uuid_, profile_id_
 
 
+@app.route("/")
+def get_main():
+    return current_app.send_static_file("index.html")
+
+
 @app.route("/json")
 def get_json():
     global last_req
     last_req = datetime.datetime.now()
     return jsonify(json_cache)
 
-@app.route("/img")
+
+@app.route("/img.png")
 def get_img():
     global last_req
     last_req = datetime.datetime.now()
-    return json_cache
+    return send_pil_img(image_cache)
 
-def renew_coll():
-    with app.app_context():
-        global profile_collections_old
-        global old_collection
-        profile_collections_new = get_profile_collection(api_key, uuid, profile_id)
-        save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
-                     profile_collections_new)
-        c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
-        print(c)
-        sort = list(c.values())
-        sort.sort(key=operator.itemgetter('last_changed'), reverse=True)
 
-        print(sort)
+def renew_coll(api_key, uuid, profile_id):
+    global profile_collections_old
+    global old_collection
+    profile_collections_new = get_profile_collection(api_key, uuid, profile_id)
+    save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
+                 profile_collections_new)
+    c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
+    print(c)
+    sort = list(c.values())
+    sort.sort(key=operator.itemgetter('last_changed'), reverse=True)
 
-        # save_to_json(os.path.join(CACHE_DIR, "exp.json"),sort)
+    print(sort)
 
-        changed = []
-        for s in sort:
-            if s["changed"]:
-                changed.append(s)
+    # save_to_json(os.path.join(CACHE_DIR, "exp.json"),sort)
 
-        print(changed)
+    changed = []
+    for s in sort:
+        if s["changed"]:
+            changed.append(s)
 
-        profile_collections_old = profile_collections_new
-        old_collection = c
+    print(changed)
 
-        return {"sorted": sort, "changed": changed}
+    profile_collections_old = profile_collections_new
+    old_collection = c
+
+    return {"sorted": sort, "changed": changed}
 
 
 class BackgroundThread(threading.Thread):
@@ -237,15 +256,19 @@ class BackgroundThread(threading.Thread):
 
     def run(self) -> None:
         global json_cache
-        while running:
-            if (datetime.datetime.now()-last_req).seconds<10:
-                json_cache = renew_coll()
-            sleep(5)
+        global image_cache
+        global exit_event
+        api_key, uuid, profile_id = start_up()
+        while not exit_event.is_set():
+            if (datetime.datetime.now() - last_req).seconds < 10:
+                json_cache = renew_coll(api_key, uuid, profile_id)
+                image_cache = create_image.gen_list(json_cache["sorted"], 4)
+            exit_event.wait(5)
 
 
 if __name__ == '__main__':
     atexit.register(exit_handler)
-    api_key, uuid, profile_id = start_up()
     background_thread = BackgroundThread()
+    background_thread.daemon = True
     background_thread.start()
     serve(app, host="127.0.0.1", port=8080)
