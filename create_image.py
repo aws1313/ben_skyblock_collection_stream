@@ -79,9 +79,11 @@ def gen_card(data):
 
 def join_cards(cards: list[Image]) -> Image:
     width, height = cards[0].size
-    joined = Image.new("RGBA", (width, height * len(cards)))
-    for c in range(len(cards)):
-        joined.alpha_composite(cards[c], (0, height * c))
+    joined = Image.new("RGBA", (width * 2, height * 2))
+    joined.alpha_composite(cards[0], (0, 0))
+    joined.alpha_composite(cards[1], (width, 0))
+    joined.alpha_composite(cards[2], (0, height))
+    joined.alpha_composite(cards[3], (width, height))
     return joined
 
 
