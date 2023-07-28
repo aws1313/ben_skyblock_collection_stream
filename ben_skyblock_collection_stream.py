@@ -216,6 +216,7 @@ def get_json():
 
 
 @app.route("/img.png")
+@app.route("ben_skyblock_collection_stream/img.png")
 def get_img():
     global last_req
     last_req = datetime.datetime.now()
