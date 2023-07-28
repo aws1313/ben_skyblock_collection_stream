@@ -64,7 +64,6 @@ def gen_card(data):
     draw.text((0, 0), s, (255, 255, 255), font=mc_font)
     missing_size = mc_font.getbbox(missing)[2]
     draw.text((bb_length - missing_size, 0), missing, missing_color, font=mc_font)
-    print(font_size)
     # composite
     y_distance = (bg_height - ic_size) // 2
     try:
@@ -73,8 +72,6 @@ def gen_card(data):
         img_bg.alpha_composite(img_bar_full, (main_y_dis, 92))
         img_bg.alpha_composite(img_font, (main_y_dis, y_distance - 5 + ((75 - y_plus) // 2)))
     except:
-        print(data["display_name"])
-        print(img_bg, img_ic)
         img_bg.show()
         img_ic.show()
     return img_bg
