@@ -8,6 +8,8 @@ from waitress import serve
 import atexit
 from werkzeug.middleware.proxy_fix import ProxyFix
 from constants import *
+import threading
+from time import sleep
 
 app = Flask(APPNAME)
 
@@ -19,9 +21,14 @@ app.wsgi_app = ProxyFix(
 collection_infos = {}
 profile_collections_old = {}
 old_collection = {}
-
+json_cache = {"sorted": [], "changed": []}
+last_req = datetime.datetime.now()
+running = True
 
 def exit_handler():
+    global running
+    running = False
+    background_thread.join()
     print("Shutting down + saving collections")
     save_to_json(os.path.join(DATA_DIR, "old_collection.json"), old_collection)
     save_to_json(os.path.join(DATA_DIR, "profile_collections_old.json"), profile_collections_old)
@@ -127,13 +134,28 @@ def get_collections(old: dict, new: dict, collection_infos, old_collections):
                         coll[c]["missing_to_next_tier"] = 0
                         coll[c]["percentage_to_next_tier"] = 1
                     else:
+                        # last tier amount
+                        if tt > 0:
+                            last_needed = items[c]["tiers"][tt]["amountRequired"]
+                        else:
+                            last_needed = 0
                         coll[c]["maxed_out"] = False
                         next_needed = items[c]["tiers"][tt + 1]["amountRequired"]
                         coll[c]["missing_to_next_tier"] = next_needed - coll[c]["collected"]
-                        coll[c]["percentage_to_next_tier"] = coll[c]["missing_to_next_tier"] / (
-                                next_needed - t["amountRequired"])
+                        coll[c]["percentage_to_next_tier"] = (coll[c]["collected"] - last_needed) / (
+                                    next_needed - last_needed)
+
 
                 else:
+                    if tier == 0:
+                        # last tier amount
+
+                        last_needed = 0
+                        coll[c]["maxed_out"] = False
+                        next_needed = items[c]["tiers"][tt]["amountRequired"]
+                        coll[c]["missing_to_next_tier"] = next_needed - coll[c]["collected"]
+                        coll[c]["percentage_to_next_tier"] = (coll[c]["collected"] - last_needed) / (
+                                next_needed - last_needed)
                     break
             coll[c]["tier_now"] = tier
 
@@ -168,36 +190,62 @@ def start_up():
     return api_key_, uuid_, profile_id_
 
 
-@app.route("/")
+@app.route("/json")
+def get_json():
+    global last_req
+    last_req = datetime.datetime.now()
+    return jsonify(json_cache)
+
+@app.route("/img")
+def get_img():
+    global last_req
+    last_req = datetime.datetime.now()
+    return json_cache
+
 def renew_coll():
-    global profile_collections_old
-    global old_collection
-    profile_collections_new = get_profile_collection(api_key, uuid, profile_id)
-    save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
-                 profile_collections_new)
-    c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
-    print(c)
-    sort = list(c.values())
-    sort.sort(key=operator.itemgetter('last_changed'), reverse=True)
+    with app.app_context():
+        global profile_collections_old
+        global old_collection
+        profile_collections_new = get_profile_collection(api_key, uuid, profile_id)
+        save_to_json(os.path.join(CACHE_DIR, str(int(datetime.datetime.now().timestamp())) + ".json"),
+                     profile_collections_new)
+        c = get_collections(profile_collections_old, profile_collections_new, collection_infos, old_collection)
+        print(c)
+        sort = list(c.values())
+        sort.sort(key=operator.itemgetter('last_changed'), reverse=True)
 
-    print(sort)
+        print(sort)
 
-    # save_to_json(os.path.join(CACHE_DIR, "exp.json"),sort)
+        # save_to_json(os.path.join(CACHE_DIR, "exp.json"),sort)
 
-    changed = []
-    for s in sort:
-        if s["changed"]:
-            changed.append(s)
+        changed = []
+        for s in sort:
+            if s["changed"]:
+                changed.append(s)
 
-    print(changed)
+        print(changed)
 
-    profile_collections_old = profile_collections_new
-    old_collection = c
+        profile_collections_old = profile_collections_new
+        old_collection = c
 
-    return jsonify({"sorted": sort, "changed": changed})
+        return {"sorted": sort, "changed": changed}
+
+
+class BackgroundThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+
+    def run(self) -> None:
+        global json_cache
+        while running:
+            if (datetime.datetime.now()-last_req).seconds<10:
+                json_cache = renew_coll()
+            sleep(5)
 
 
 if __name__ == '__main__':
     atexit.register(exit_handler)
     api_key, uuid, profile_id = start_up()
+    background_thread = BackgroundThread()
+    background_thread.start()
     serve(app, host="127.0.0.1", port=8080)
