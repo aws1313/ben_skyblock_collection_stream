@@ -99,7 +99,10 @@ def evaluate_changes(old: dict, new: dict, old_collections):
     collections = old_collections
     print(old_collections)
     for k in collected.keys():
-        collections[k]["collected"] = collected[k]
+        if k in collections.keys():
+            collections[k]["collected"] = collected[k]
+        else:
+            collections[k] = {"collected": collected[k]}
         if k in collected_old.keys() and (collected[k] != collected_old[k]):
             collections[k]["last_changed"] = int(datetime.datetime.now().timestamp())
             collections[k]["changed"] = True
