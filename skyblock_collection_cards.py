@@ -272,4 +272,4 @@ if __name__ == '__main__':
     background_thread = BackgroundThread()
     background_thread.daemon = True
     background_thread.start()
-    serve(app, host="127.0.0.1", port=43256)
+    serve(app, host="0.0.0.0", port=43256)
